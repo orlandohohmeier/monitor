@@ -21,7 +21,6 @@ var (
 	successPattern = flag.String("success-pattern", "success|pass", "Regular expression to identify successes in the process out put.")
 	errorPattern   = flag.String("error-pattern", "error|fail", "Regular expression to identify errors in the process out put.")
 	metricsAddr    = flag.String("listen-address", ":9090", "The address to listen on for HTTP requests.")
-	delay          = flag.Int64("delay", 10, "Delay (in secods) between command executions.")
 )
 
 // Metrics
