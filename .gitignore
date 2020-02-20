@@ -1,0 +1,7 @@
+*.test
+*.out
+dist
+.idea
+.history
+monitor
+tmp
