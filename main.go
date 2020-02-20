@@ -25,8 +25,8 @@ var (
 
 // Metrics
 var (
-	successCounter = prometheus.NewCounter(prometheus.CounterOpts{Name: "command_success", Help: "Counts the command successes"})
-	errorCounter   = prometheus.NewCounter(prometheus.CounterOpts{Name: "command_error", Help: "Counts the command errors"})
+	successCounter = prometheus.NewCounter(prometheus.CounterOpts{Namespace: "monitor", Name: "success", Help: "Counts the command successes"})
+	errorCounter   = prometheus.NewCounter(prometheus.CounterOpts{Namespace: "monitor", Name: "error", Help: "Counts the command errors"})
 )
 
 func main() {
