@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -29,8 +30,23 @@ var (
 	errorCounter   = prometheus.NewCounter(prometheus.CounterOpts{Namespace: "monitor", Name: "error", Help: "Counts the command errors"})
 )
 
+func scan(reader io.Reader, lnHandler func(l string)) {
+	s := bufio.NewScanner(reader)
+	for s.Scan() {
+		ln := s.Text()
+		lnHandler(ln)
+		fmt.Println(ln)
+	}
+
+	if err := s.Err(); err != nil {
+		log.Printf("Scan error: %s", err.Error())
+	}
+}
+
 func main() {
 	flag.Parse()
+
+	var exit = -1
 
 	prometheus.MustRegister(successCounter)
 	prometheus.MustRegister(errorCounter)
@@ -38,7 +54,13 @@ func main() {
 	successMatcher := regexp.MustCompile(*successPattern)
 	errorMatcher := regexp.MustCompile(*errorPattern)
 
-	var exit = -1
+	outputHandler := func(s string) {
+		if errorMatcher.MatchString(s) {
+			errorCounter.Inc()
+		} else if successMatcher.MatchString(s) {
+			successCounter.Inc()
+		}
+	}
 
 	var args strings.Builder
 	for _, a := range flag.Args() {
@@ -54,52 +76,13 @@ func main() {
 		if err != nil {
 			log.Printf("Unable to open stdout pipe: %s", err.Error())
 		}
+		go scan(stdout, outputHandler)
+
 		stderr, err := cmd.StderrPipe()
 		if err != nil {
 			log.Printf("Unable to open stderr pipe: %s", err.Error())
 		}
-
-		// stdout
-		go func() {
-			scanner := bufio.NewScanner(stdout)
-			for scanner.Scan() {
-				line := scanner.Text()
-				if errorMatcher.MatchString(line) {
-					errorCounter.Inc()
-				} else if successMatcher.MatchString(line) {
-					successCounter.Inc()
-				}
-
-				fmt.Println(line)
-			}
-
-			if err := scanner.Err(); err != nil {
-				log.Printf("stdout scan error: %s", err.Error())
-			}
-
-			stdout.Close()
-		}()
-
-		// stderr
-		go func() {
-			scanner := bufio.NewScanner(stderr)
-			for scanner.Scan() {
-				line := scanner.Text()
-				if errorMatcher.MatchString(line) {
-					errorCounter.Inc()
-				} else if successMatcher.MatchString(line) {
-					successCounter.Inc()
-				}
-
-				fmt.Println(line)
-			}
-
-			if err := scanner.Err(); err != nil {
-				log.Printf("stderr scan error: %s", err.Error())
-			}
-
-			stderr.Close()
-		}()
+		go scan(stderr, outputHandler)
 
 		err = cmd.Start()
 		if err != nil {
@@ -109,6 +92,8 @@ func main() {
 
 		err = cmd.Wait()
 		if err != nil {
+			exit = 1
+
 			if exerr, ok := err.(*exec.ExitError); ok {
 				exit = exerr.ExitCode()
 			}
@@ -120,16 +105,20 @@ func main() {
 
 		successCounter.Inc()
 		exit = 0
-
 	}()
 
+	flush := 0
 	promhandler := promhttp.Handler()
 	http.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
 		promhandler.ServeHTTP(w, r)
-		if exit != -1 {
-			os.Exit(exit)
-		}
-	})
 
+		if exit != -1 {
+			flush++
+			if flush > 2 {
+				os.Exit(exit)
+			}
+		}
+
+	})
 	log.Fatal(http.ListenAndServe(*metricsAddr, nil))
 }
